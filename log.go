@@ -1,6 +1,10 @@
 package nacos
 
-import "fmt"
+import (
+	"fmt"
+	"runtime"
+	"time"
+)
 
 type LogInterface interface {
 	Error(string, ...interface{})
@@ -41,20 +45,25 @@ func (c *logger) SetLevel(level string) {
 func lvToString(lv int8) string {
 	switch lv {
 	case 4:
-		return "[error]"
+		return "[ERROR]"
 	case 3:
-		return "[warn]"
+		return "[WARN]"
 	case 2:
-		return "[info]"
+		return "[INFO]"
 	case 1:
-		return "[debug]"
+		return "[DEBUG]"
 	}
-	return "[info]"
+	return "[INFO]"
 }
 
 func (c *logger) println(lv int8, msg string, params ...interface{}) {
 	if c.level <= lv {
-		v := append([]interface{}{}, lvToString(lv), msg)
+		v := append([]interface{}{}, time.Now().Format(time.RFC3339), lvToString(lv))
+		_, file, line, ok := runtime.Caller(2)
+		if ok {
+			v = append(v, file, line)
+		}
+		v = append(v, msg)
 		if len(params) > 0 {
 			v = append(v, params...)
 		}

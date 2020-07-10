@@ -4,9 +4,10 @@ services:
     image: nacos/nacos-server:latest
     container_name: nacos-standalone
     environment:
-      - PREFER_HOST_MODE=hostname
-      - MODE=standalone
-      - NACOS_AUTH_ENABLE=true
+      PREFER_HOST_MODE: hostname
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "true"
+      JAVA_OPT: "-Dcom.alibaba.nacos.naming.log.level=debug"
     volumes:
       - ./standalone-logs/:/home/nacos/logs
       - ./init.d/custom.properties:/home/nacos/init.d/custom.properties

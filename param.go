@@ -22,6 +22,8 @@ const (
 	keyEphemeral   string = "ephemeral"
 	keyBeat        string = "beat"
 	keyClusters    string = "clusters"
+	keyUDPPort     string = "udpPort"
+	keyClientIP    string = "clientIP"
 )
 
 type beatInfo struct {
@@ -56,6 +58,8 @@ type paramMap struct {
 	ephemeral   bool
 	beat        *beatInfo
 	clusters    []string
+	udpPort     uint
+	clientIP    string
 }
 
 func newParamMap() *paramMap {
@@ -122,6 +126,10 @@ func (c *paramMap) Parse() url.Values {
 			if len(c.clusters) > 0 {
 				v.Set(k, strings.Join(c.clusters, ","))
 			}
+		case keyUDPPort:
+			v.Set(k, fmt.Sprint(c.udpPort))
+		case keyClientIP:
+			v.Set(k, fmt.Sprint(c.clientIP))
 		}
 	}
 	return v
@@ -232,13 +240,6 @@ func ParamEphemeral(b bool) Param {
 	})
 }
 
-// Ip          string            `json:"ip"`
-// Port        uint64            `json:"port"`
-// Weight      float64           `json:"weight"`
-// ServiceName string            `json:"serviceName"`
-// Cluster     string            `json:"cluster"`
-// Metadata    map[string]string `json:"metadata"`
-// Scheduled   bool              `json:"scheduled"`
 func ParamBeat(bi *beatInfo) Param {
 	return newParam(func(m *paramMap) {
 		m.keys[keyBeat] = true
@@ -246,22 +247,16 @@ func ParamBeat(bi *beatInfo) Param {
 	})
 }
 
-// func ParamBeat(params ...Param) Param {
-// 	return newParam(func(m *paramMap) {
-// 		for _, v:= params
-// 	})
-// }
+func paramUDPPort(port uint) Param {
+	return newParam(func(m *paramMap) {
+		m.keys[keyUDPPort] = true
+		m.udpPort = port
+	})
+}
 
-/**
-ip	字符串	是	服务实例IP
-port	int	是	服务实例port
-namespaceId	字符串	否	命名空间ID
-weight	double	否	权重
-enabled	boolean	否	是否上线
-healthy	boolean	否	是否健康
-metadata	字符串	否	扩展信息
-clusterName	字符串	否	集群名
-serviceName	字符串	是	服务名
-groupName	字符串	否	分组名
-ephemeral	boolean	否	是否临时实例
-*/
+func paramClientIP(ip string) Param {
+	return newParam(func(m *paramMap) {
+		m.keys[keyClientIP] = true
+		m.clientIP = ip
+	})
+}

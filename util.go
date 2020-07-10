@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io/ioutil"
-	"sort"
-	"strings"
+	"net"
 
 	"github.com/buger/jsonparser"
+	"github.com/patrickmn/go-cache"
 )
 
 const (
@@ -33,24 +33,78 @@ func parseData(data []byte) ([]byte, bool, error) {
 	return bs, true, nil
 }
 
-func buildServiceKey(serviceName string, namespaceID string, clusters []string) string {
-	var cluster string
-	if len(clusters) > 0 {
-		sort.Strings(clusters)
-		cluster = strings.Join(clusters, ",")
+func getServiceHosts(b []byte) (*Service, error) {
+	svc := new(Service)
+	err := jsonparser.ObjectEach(b, func(bk []byte, v []byte, t jsonparser.ValueType, offset int) error {
+		var err error
+		key := string(bk)
+		switch key {
+		case "dom":
+			svc.Dom = string(v)
+		case "cacheMillis":
+			svc.CacheMillis, err = jsonparser.GetInt(v)
+			if err != nil {
+				return err
+			}
+		case "useSpecifiedURL":
+			svc.UseSpecifiedURL, err = jsonparser.GetBoolean(v)
+			if err != nil {
+				return err
+			}
+		case "hosts":
+			svc.Instances = make([]*Instance, 0)
+			err = json.Unmarshal(v, &svc.Instances)
+			if err != nil {
+				return err
+			}
+		case "checksum":
+			svc.Checksum = string(v)
+		case "lastRefTime":
+			svc.LastRefTime, err = jsonparser.GetInt(v)
+			if err != nil {
+				return err
+			}
+		case "env":
+			svc.Env = string(v)
+		case "clusters":
+			svc.Clusters = string(v)
+		case "metadata":
+			svc.Metadata = make(map[string]interface{})
+			err = json.Unmarshal(v, &svc.Metadata)
+			if err != nil {
+				return err
+			}
+		case "name":
+			svc.Name = string(v)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return fmt.Sprintf("%s:%s:%s", serviceName, namespaceID, cluster)
+	return svc, nil
 }
 
-func getServiceHosts(b []byte) ([]*Instance, error) {
-	data, _, _, err := jsonparser.Get(b, "hosts")
-	if err != nil {
-		return nil, err
+func getServiceMap(c *cache.Cache) map[string]interface{} {
+	m := make(map[string]interface{})
+	items := c.Items()
+	for key, it := range items {
+		m[key] = it.Object
 	}
-	var ins []*Instance
-	err = json.Unmarshal(data, &ins)
+	return m
+}
+
+func getLocalIP() (string, error) {
+	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return ins, nil
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String(), nil
+			}
+		}
+	}
+	return "", errors.New("no local IP")
 }

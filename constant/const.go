@@ -3,7 +3,7 @@ package constant
 import "time"
 
 const (
-	ClientVersion = "nacos-client-1.0"
+	ClientVersion = "nacos-go-sdk:v1.0.0"
 
 	DefaultClusterName  = "DEFAULT"
 	DefaultGroupName    = "DEFAULT_GROUP"

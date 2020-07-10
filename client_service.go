@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/buger/jsonparser"
@@ -16,17 +17,26 @@ import (
 // )
 
 type ServiceClient struct {
-	opts           *clientOptions
-	client         *httpClient
-	log            LogInterface
-	beatMap        *cache.Cache
-	serviceCache   *cache.Cache
-	subCallbackMap *cache.Cache
+	opts       *clientOptions
+	client     *httpClient
+	log        LogInterface
+	beatMap    *cache.Cache
+	lock       sync.Mutex
+	nsServices map[string]*serviceListener
 }
 
-type serviceInstance struct {
-	LastUpdateTime time.Time
-	Instances      []*Instance
+type Service struct {
+	Dom             string                 `json:"dom"`
+	CacheMillis     int64                  `json:"cacheMillis"`
+	UseSpecifiedURL bool                   `json:"useSpecifiedUrl"`
+	Instances       []*Instance            `json:"hosts"`
+	Checksum        string                 `json:"checksum"`
+	LastRefTime     int64                  `json:"lastRefTime"`
+	Env             string                 `json:"env"`
+	Clusters        string                 `json:"clusters"`
+	Metadata        map[string]interface{} `json:"metadata"`
+	Name            string                 `json:"name"`
+	LastUpdateTime  time.Time              `json:"-"`
 }
 
 type Instance struct {
@@ -51,8 +61,9 @@ func NewServiceClient(addr string, options ...ClientOption) (*ServiceClient, err
 	}
 	logger := newDefaultLogger("info")
 	cltOpts := &clientOptions{
-		maxCacheTime: constant.DefaultMaxCacheTime,
-		log:          newDefaultLogger("info"),
+		maxCacheTime:      constant.DefaultMaxCacheTime,
+		log:               newDefaultLogger("info"),
+		defautNameSpaceID: constant.DefaultNameSpaceID,
 		httpClient: &httpClient{
 			addr:        u.Scheme + "://" + u.Host,
 			contextPath: u.Path,
@@ -73,12 +84,18 @@ func NewServiceClient(addr string, options ...ClientOption) (*ServiceClient, err
 		op := options[i]
 		op.apply(cltOpts)
 	}
+	if cltOpts.discoveryIP == "" {
+		cltOpts.discoveryIP, err = getLocalIP()
+		if err != nil {
+			return nil, err
+		}
+	}
 	clt := &ServiceClient{
-		beatMap:      cache.New(5*time.Minute, 10*time.Minute),
-		serviceCache: cache.New(cltOpts.maxCacheTime, 2*cltOpts.maxCacheTime),
-		opts:         cltOpts,
-		log:          cltOpts.log,
-		client:       cltOpts.httpClient,
+		beatMap:    cache.New(5*time.Minute, 10*time.Minute),
+		nsServices: make(map[string]*serviceListener),
+		opts:       cltOpts,
+		log:        cltOpts.log,
+		client:     cltOpts.httpClient,
 	}
 	//配置参数用户名密码配置
 	if clt.client.username != "" {
@@ -93,11 +110,27 @@ func NewServiceClient(addr string, options ...ClientOption) (*ServiceClient, err
 }
 
 func (c *ServiceClient) RegisterInstance(ip string, port uint, serviceName string, params ...Param) error {
-	pm, err := c.registerInstance(ip, port, serviceName, params...)
+	pm := newParamMap()
+	pm.Set(
+		ParamIPAddress(ip),
+		ParamPort(port),
+		ParamServiceName(serviceName),
+		ParamEnabled(true),
+		ParamWeight(1.0),
+		ParamHealthy(true),
+		ParamMetadata(map[string]interface{}{}),
+		ParamGroupName(constant.DefaultGroupName),
+		ParamNameSpaceID(c.opts.defautNameSpaceID),
+		ParamClusterName(constant.DefaultClusterName),
+		ParamEphemeral(true),
+	)
+	pm.Set(params...)
+	exist, err := c.registerInstance(pm)
 	if err != nil {
 		return err
 	}
-	if pm != nil && pm.ephemeral {
+	//如果不存在并且临时发送心跳
+	if !exist && pm.ephemeral {
 		beat := &beatInfo{
 			IP:          pm.ipAddress,
 			Port:        pm.port,
@@ -116,71 +149,113 @@ func (c *ServiceClient) RegisterInstance(ip string, port uint, serviceName strin
 	return nil
 }
 
-func (c *ServiceClient) GetServiceInstances(serviceName string, lazy bool, params ...Param) ([]*Instance, error) {
+func (c *ServiceClient) GetService(serviceName string, lazy bool, params ...Param) (*Service, error) {
 	query := newParamMap()
 	query.Set(
 		ParamHealthy(true),
 		ParamServiceName(serviceName),
 		ParamGroupName(constant.DefaultGroupName),
-		ParamNameSpaceID(constant.DefaultNameSpaceID),
+		ParamNameSpaceID(c.opts.defautNameSpaceID),
 	)
 	query.Set(params...)
-	key := buildServiceKey(query.GetGrouppedServiceName(), query.nameSpaceID, query.clusters)
 	if lazy {
-		if v, ok := c.serviceCache.Get(key); ok {
-			sv := v.(*serviceInstance)
-			if time.Since(sv.LastUpdateTime) <= c.opts.maxCacheTime {
-				return sv.Instances, nil
-			}
+		svc := c.getCacheService(query.nameSpaceID, query.GetGrouppedServiceName(), query.clusters)
+		if svc != nil && time.Since(svc.LastUpdateTime) <= c.opts.maxCacheTime {
+			return svc, nil
 		}
 	}
+	return c.getServiceInstances(query)
+}
+
+func (c *ServiceClient) setCacheService(nameSpaceID string, grouppedServiceName string, clusters []string, service *Service) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if svc, ok := c.nsServices[nameSpaceID]; ok {
+		key := svc.buildKey(grouppedServiceName, clusters)
+		svc.services.Set(key, service, cache.NoExpiration)
+	} else {
+		svc = newServiceListenr(nameSpaceID, c.log)
+		key := svc.buildKey(grouppedServiceName, clusters)
+		svc.services.Set(key, service, cache.NoExpiration)
+		c.nsServices[nameSpaceID] = svc
+	}
+}
+
+func (c *ServiceClient) getCacheService(namespaceID string, grouppedServiceName string, clusters []string) *Service {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if svc, ok := c.nsServices[namespaceID]; ok {
+		key := svc.buildKey(grouppedServiceName, clusters)
+		if v, ok := svc.services.Get(key); ok {
+			sv := v.(*Service)
+			return sv
+		}
+	}
+	return nil
+}
+
+func (c *ServiceClient) Watch(serviceName string, callback func(*Service), params ...Param) error {
+	var svc *serviceListener
+	var ok bool
+	query := newParamMap()
+	query.Set(
+		ParamHealthy(true),
+		ParamServiceName(serviceName),
+		ParamGroupName(constant.DefaultGroupName),
+		ParamNameSpaceID(c.opts.defautNameSpaceID),
+	)
+	query.Set(params...)
+	c.lock.Lock()
+	if svc, ok = c.nsServices[query.nameSpaceID]; !ok {
+		svc = newServiceListenr(query.nameSpaceID, c.log)
+	}
+	svc.watch(query, callback, true)
+	if svc.port == 0 {
+		err := svc.listen()
+		if err != nil {
+			return err
+		}
+		query.Set(paramUDPPort(svc.port), paramClientIP(c.opts.discoveryIP))
+	}
+	c.nsServices[query.nameSpaceID] = svc
+	c.lock.Unlock()
+	_, err := c.getServiceInstances(query)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *ServiceClient) getServiceInstances(query *paramMap) (*Service, error) {
 	b, err := c.client.api(http.MethodGet, constant.APIInstanceList, query, nil)
 	if err != nil {
 		c.log.Error("GetServiceInstances", "api", err)
 		return nil, err
 	}
-	ins, err := getServiceHosts(b)
+	service, err := getServiceHosts(b)
 	if err != nil {
 		c.log.Error("GetServiceInstances", "getServiceHosts", err)
 		return nil, err
 	}
-	si := &serviceInstance{
-		LastUpdateTime: time.Now(),
-		Instances:      ins,
-	}
-	c.serviceCache.Set(key, si, cache.NoExpiration)
-	return ins, nil
+	service.LastUpdateTime = time.Now()
+	c.setCacheService(query.nameSpaceID, query.GetGrouppedServiceName(), query.clusters, service)
+	return service, nil
 }
 
-func (c *ServiceClient) registerInstance(ip string, port uint, serviceName string, params ...Param) (*paramMap, error) {
-	query := newParamMap()
-	query.Set(
-		ParamIPAddress(ip),
-		ParamPort(port),
-		ParamServiceName(serviceName),
-		ParamEnabled(true),
-		ParamWeight(1.0),
-		ParamHealthy(true),
-		ParamMetadata(map[string]interface{}{}),
-		ParamGroupName(constant.DefaultGroupName),
-		ParamNameSpaceID(constant.DefaultNameSpaceID),
-		ParamClusterName(constant.DefaultClusterName),
-		ParamEphemeral(true),
-	)
-	query.Set(params...)
+func (c *ServiceClient) registerInstance(query *paramMap) (bool, error) {
 	//serviceName(group@@name):clusterName:ip:port
 	k := fmt.Sprintf("%s:%s:%s:%d", query.GetGrouppedServiceName(), query.clusterName, query.ipAddress, query.port)
 	if _, exist := c.beatMap.Get(k); exist {
 		c.log.Warn("registerInstance", "register duplicate service", query.GetGrouppedServiceName(), query.ipAddress, query.port)
-		return nil, nil
+		return true, nil
 	}
 	c.beatMap.Set(k, true, cache.NoExpiration)
 	_, err := c.client.api(http.MethodPost, constant.APIInstance, query, nil)
 	if err != nil {
 		c.log.Error("registerInstance", "api", err)
-		return nil, err
+		return false, err
 	}
-	return query, nil
+	return false, nil
 }
 
 func (c *ServiceClient) autoSendBeat(nameSpaceID string, beat *beatInfo) {
@@ -216,7 +291,9 @@ func (c *ServiceClient) sendBeat(nameSpaceID string, beat *beatInfo) error {
 	code, _ = jsonparser.GetInt(b, constant.Code)
 	if code == 20404 {
 		groupName, serviceName := beat.SplitServiceName()
-		_, err := c.registerInstance(beat.IP, beat.Port, serviceName, ParamWeight(beat.Weight), ParamMetadata(beat.Metadata), ParamClusterName(beat.Cluster), ParamEphemeral(true), ParamGroupName(groupName))
+		pm := newParamMap()
+		pm.Set(ParamIPAddress(beat.IP), ParamPort(beat.Port), ParamServiceName(serviceName), ParamWeight(beat.Weight), ParamMetadata(beat.Metadata), ParamClusterName(beat.Cluster), ParamEphemeral(true), ParamGroupName(groupName))
+		_, err := c.registerInstance(pm)
 		if err != nil {
 			c.log.Error("sendBeat", "re-register", err)
 			return err

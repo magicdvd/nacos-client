@@ -6,9 +6,11 @@ import (
 )
 
 type clientOptions struct {
-	maxCacheTime time.Duration
-	log          LogInterface
-	httpClient   *httpClient
+	maxCacheTime      time.Duration
+	log               LogInterface
+	httpClient        *httpClient
+	defautNameSpaceID string
+	discoveryIP       string
 }
 
 type ClientOption interface {
@@ -72,5 +74,21 @@ func Auth(user, password string) ClientOption {
 func MaxCacheTime(s time.Duration) ClientOption {
 	return newFuncClientOption(func(o *clientOptions) {
 		o.maxCacheTime = s
+	})
+}
+
+func DefaultNameSpaceID(s string) ClientOption {
+	return newFuncClientOption(func(o *clientOptions) {
+		if s != "" {
+			o.defautNameSpaceID = s
+		}
+	})
+}
+
+func DiscoveryIP(s string) ClientOption {
+	return newFuncClientOption(func(o *clientOptions) {
+		if s != "" {
+			o.discoveryIP = s
+		}
 	})
 }
