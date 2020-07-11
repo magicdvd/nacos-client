@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	a, err := nacos.NewServiceClient("http://nacos:nacos@127.0.0.1:8848/nacos", nacos.LogLevel("debug"), nacos.DiscoveryIP("172.21.0.1"))
+	a, err := nacos.NewServiceClient("http://nacos:nacos@127.0.0.1:8848/nacos", nacos.LogLevel("info"))
 	if err != nil {
 		fmt.Println(err)
 		return

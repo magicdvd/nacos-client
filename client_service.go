@@ -1,6 +1,7 @@
 package nacos
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -39,6 +40,26 @@ type Service struct {
 	LastUpdateTime  time.Time              `json:"-"`
 }
 
+func (c *Service) InstanceDiff(a *Service) bool {
+	if len(c.Instances) != len(a.Instances) {
+		return true
+	}
+	cp := make(map[string]*Instance)
+	for _, v := range c.Instances {
+		cp[fmt.Sprintf("%s:%d", v.Ip, v.Port)] = v
+	}
+	for _, v := range a.Instances {
+		if n, ok := cp[fmt.Sprintf("%s:%d", v.Ip, v.Port)]; !ok {
+			return true
+		} else {
+			if n.Diff(v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type Instance struct {
 	Valid       bool              `json:"valid"`
 	Marked      bool              `json:"marked"`
@@ -52,6 +73,50 @@ type Instance struct {
 	Enable      bool              `json:"enabled"`
 	Healthy     bool              `json:"healthy"`
 	Ephemeral   bool              `json:"ephemeral"`
+}
+
+func (c *Instance) Diff(a *Instance) bool {
+	if c.Valid != a.Valid {
+		return true
+	}
+	if c.Marked != a.Marked {
+		return true
+	}
+	if c.InstanceId != a.InstanceId {
+		return true
+	}
+	if c.Port != a.Port {
+		return true
+	}
+	if c.Ip != a.Ip {
+		return true
+	}
+	if c.Weight != a.Weight {
+		return true
+	}
+	if c.Metadata != nil && a.Metadata != nil {
+		cb, _ := json.Marshal(c.Metadata)
+		ab, _ := json.Marshal(a.Metadata)
+		if string(cb) != string(ab) {
+			return true
+		}
+	}
+	if c.ClusterName != a.ClusterName {
+		return true
+	}
+	if c.ServiceName != a.ServiceName {
+		return true
+	}
+	if c.Enable != a.Enable {
+		return true
+	}
+	if c.Healthy != a.Healthy {
+		return true
+	}
+	if c.Ephemeral != a.Ephemeral {
+		return true
+	}
+	return false
 }
 
 func NewServiceClient(addr string, options ...ClientOption) (*ServiceClient, error) {
@@ -125,7 +190,7 @@ func (c *ServiceClient) RegisterInstance(ip string, port uint, serviceName strin
 		ParamEphemeral(true),
 	)
 	pm.Set(params...)
-	exist, err := c.registerInstance(pm)
+	exist, err := c.registerInstance(pm, true)
 	if err != nil {
 		return err
 	}
@@ -209,9 +274,11 @@ func (c *ServiceClient) Watch(serviceName string, callback func(*Service), param
 	if svc, ok = c.nsServices[query.nameSpaceID]; !ok {
 		svc = newServiceListenr(query.nameSpaceID, c.log)
 	}
-	svc.watch(query, callback, true)
+	if callback != nil {
+		svc.watch(query, callback, true)
+	}
 	if svc.port == 0 {
-		err := svc.listen()
+		err := svc.listen(c.opts.discoveryIP)
 		if err != nil {
 			return err
 		}
@@ -219,10 +286,24 @@ func (c *ServiceClient) Watch(serviceName string, callback func(*Service), param
 	}
 	c.nsServices[query.nameSpaceID] = svc
 	c.lock.Unlock()
-	_, err := c.getServiceInstances(query)
+	service, err := c.getServiceInstances(query)
 	if err != nil {
 		return err
 	}
+	go func() {
+		for {
+			lastRefTime := time.Unix(0, int64(time.Millisecond)*service.LastRefTime)
+			pastTime := time.Since(lastRefTime) - time.Duration(service.CacheMillis)*time.Millisecond
+			if pastTime >= 0 {
+				service, err = c.getServiceInstances(query)
+				if err != nil {
+					c.log.Error("watch service, sync push service error", err)
+				}
+			} else {
+				<-time.After(-pastTime)
+			}
+		}
+	}()
 	return nil
 }
 
@@ -242,14 +323,16 @@ func (c *ServiceClient) getServiceInstances(query *paramMap) (*Service, error) {
 	return service, nil
 }
 
-func (c *ServiceClient) registerInstance(query *paramMap) (bool, error) {
+func (c *ServiceClient) registerInstance(query *paramMap, checkBeatExist bool) (bool, error) {
 	//serviceName(group@@name):clusterName:ip:port
-	k := fmt.Sprintf("%s:%s:%s:%d", query.GetGrouppedServiceName(), query.clusterName, query.ipAddress, query.port)
-	if _, exist := c.beatMap.Get(k); exist {
-		c.log.Warn("registerInstance", "register duplicate service", query.GetGrouppedServiceName(), query.ipAddress, query.port)
-		return true, nil
+	if checkBeatExist {
+		k := fmt.Sprintf("%s:%s:%s:%d", query.GetGrouppedServiceName(), query.clusterName, query.ipAddress, query.port)
+		if _, exist := c.beatMap.Get(k); exist {
+			c.log.Warn("registerInstance", "register duplicate service", query.GetGrouppedServiceName(), query.ipAddress, query.port)
+			return true, nil
+		}
+		c.beatMap.Set(k, true, cache.NoExpiration)
 	}
-	c.beatMap.Set(k, true, cache.NoExpiration)
 	_, err := c.client.api(http.MethodPost, constant.APIInstance, query, nil)
 	if err != nil {
 		c.log.Error("registerInstance", "api", err)
@@ -293,7 +376,7 @@ func (c *ServiceClient) sendBeat(nameSpaceID string, beat *beatInfo) error {
 		groupName, serviceName := beat.SplitServiceName()
 		pm := newParamMap()
 		pm.Set(ParamIPAddress(beat.IP), ParamPort(beat.Port), ParamServiceName(serviceName), ParamWeight(beat.Weight), ParamMetadata(beat.Metadata), ParamClusterName(beat.Cluster), ParamEphemeral(true), ParamGroupName(groupName))
-		_, err := c.registerInstance(pm)
+		_, err := c.registerInstance(pm, false)
 		if err != nil {
 			c.log.Error("sendBeat", "re-register", err)
 			return err

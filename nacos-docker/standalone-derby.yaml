@@ -1,4 +1,4 @@
-version: "2"
+version: "3"
 services:
   nacos:
     image: nacos/nacos-server:latest
@@ -7,12 +7,12 @@ services:
       PREFER_HOST_MODE: hostname
       MODE: standalone
       NACOS_AUTH_ENABLE: "true"
-      JAVA_OPT: "-Dcom.alibaba.nacos.naming.log.level=debug"
     volumes:
       - ./standalone-logs/:/home/nacos/logs
       - ./init.d/custom.properties:/home/nacos/init.d/custom.properties
     ports:
       - "8848:8848"
+    # network_mode: host
   prometheus:
     container_name: prometheus
     image: prom/prometheus:latest
@@ -23,9 +23,11 @@ services:
     depends_on:
       - nacos
     restart: on-failure
+    # network_mode: host
   grafana:
     container_name: grafana
     image: grafana/grafana:latest
     ports:
       - 3000:3000
     restart: on-failure
+  #   network_mode: host

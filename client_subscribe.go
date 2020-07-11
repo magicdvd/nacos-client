@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"sort"
 	"strconv"
@@ -29,8 +30,8 @@ type pushData struct {
 	LastRefTime int64           `json:"lastRefTime"`
 }
 
-func (c *serviceListener) tryListen(port uint) (*net.UDPConn, bool) {
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
+func (c *serviceListener) tryListen(ip string, port uint) (*net.UDPConn, bool) {
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", ip, port))
 	if err != nil {
 		c.log.Error("udp retry", err)
 		return nil, false
@@ -78,14 +79,14 @@ func newServiceListenr(nameSpaceID string, log LogInterface) *serviceListener {
 	return pr
 }
 
-func (c *serviceListener) listen() error {
+func (c *serviceListener) listen(addr string) error {
 	var conn *net.UDPConn
 	var ok bool
 	var port int
 	for i := 0; i < 3; i++ {
-		//r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		port = 54951
-		conn, ok = c.tryListen(uint(port))
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		port = r.Intn(1000) + 54951
+		conn, ok = c.tryListen(addr, uint(port))
 		if ok {
 			c.log.Debug("start udp server listen", port)
 			break
@@ -116,7 +117,7 @@ func (c *serviceListener) handleClient(conn *net.UDPConn) {
 		c.log.Error("failed to parse push data", err)
 		return
 	}
-	c.log.Debug("receive push ", s, remoteAddr)
+	c.log.Info("receive push ", s, remoteAddr)
 	var pushData pushData
 	err1 := json.Unmarshal(s, &pushData)
 	if err1 != nil {
@@ -125,7 +126,24 @@ func (c *serviceListener) handleClient(conn *net.UDPConn) {
 	}
 	ack := make(map[string]string)
 	if pushData.PushType == "dom" || pushData.PushType == "service" {
-		//hosts, err := getServiceHosts(pushData.Data)
+		service, err := getServiceHosts(pushData.Data)
+		if err != nil {
+			c.log.Error("recieve push data error", c.nameSpaceID, err)
+		} else {
+			clusters := make([]string, 0)
+			if service.Clusters != "" {
+				clusters = strings.Split(service.Clusters, ",")
+			}
+			key := c.buildKey(service.Name, clusters)
+			if v, ok := c.services.Get(key); !ok {
+				c.triggerCallback(key, service)
+			} else {
+				sv := v.(*Service)
+				if service.InstanceDiff(sv) {
+					c.triggerCallback(key, service)
+				}
+			}
+		}
 		ack["type"] = "push-ack"
 		ack["lastRefTime"] = strconv.FormatInt(pushData.LastRefTime, 10)
 		ack["data"] = ""
@@ -146,19 +164,15 @@ func (c *serviceListener) handleClient(conn *net.UDPConn) {
 	}
 	bs, _ := json.Marshal(ack)
 	_, _ = conn.WriteToUDP(bs, remoteAddr)
-	c.log.Debug("response push ", string(bs), remoteAddr)
+	c.log.Info("response push ", string(bs), remoteAddr)
 }
 
-func (c *ServiceClient) triggerCallback(b []byte) error {
-	// c, err := jsonparser.GetString(b, "clusters")
-	// if err != nil {
-	// 	return err
-	// }
-	// sv, err := jsonparser.GetString(b, "")
-
-	// hosts, err := getServiceHosts(b)
-	// if err != nil {
-	// 	return err
-	// }
-	return nil
+func (c *serviceListener) triggerCallback(key string, s *Service) {
+	if tmp, ok := c.callbacks.Get(key); ok {
+		fns := tmp.([]*func(*Service))
+		for _, v := range fns {
+			fn := *v
+			go fn(s)
+		}
+	}
 }
