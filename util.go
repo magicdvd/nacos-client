@@ -17,7 +17,7 @@ const (
 	gzBytes2 byte = 0x8b
 )
 
-func parseData(data []byte) ([]byte, bool, error) {
+func tryGzipDecompress(data []byte) ([]byte, bool, error) {
 	if len(data) < 2 || data[0] != gzBytes1 || data[1] != gzBytes2 {
 		return data, false, nil
 	}
@@ -33,7 +33,7 @@ func parseData(data []byte) ([]byte, bool, error) {
 	return bs, true, nil
 }
 
-func getServiceHosts(b []byte) (*Service, error) {
+func parseServiceJSON(b []byte) (*Service, error) {
 	svc := new(Service)
 	err := jsonparser.ObjectEach(b, func(bk []byte, v []byte, t jsonparser.ValueType, offset int) error {
 		var err error
@@ -85,7 +85,7 @@ func getServiceHosts(b []byte) (*Service, error) {
 	return svc, nil
 }
 
-func getServiceMap(c *cache.Cache) map[string]interface{} {
+func dumpCache(c *cache.Cache) map[string]interface{} {
 	m := make(map[string]interface{})
 	items := c.Items()
 	for key, it := range items {

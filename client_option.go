@@ -11,6 +11,7 @@ type clientOptions struct {
 	httpClient        *httpClient
 	defautNameSpaceID string
 	discoveryIP       string
+	appName           string
 }
 
 type ClientOption interface {
@@ -31,7 +32,7 @@ func (fco *funcClientOption) apply(do *clientOptions) {
 	fco.f(do)
 }
 
-func HTTPTimeoutMS(s time.Duration) ClientOption {
+func HTTPTimeout(s time.Duration) ClientOption {
 	return newFuncClientOption(func(o *clientOptions) {
 		o.httpClient.Timeout = s
 	})
@@ -90,5 +91,17 @@ func DiscoveryIP(s string) ClientOption {
 		if s != "" {
 			o.discoveryIP = s
 		}
+	})
+}
+
+func EnableHTTPRequestLog(b bool) ClientOption {
+	return newFuncClientOption(func(o *clientOptions) {
+		o.httpClient.enableLog = b
+	})
+}
+
+func AppName(s string) ClientOption {
+	return newFuncClientOption(func(o *clientOptions) {
+		o.appName = s
 	})
 }

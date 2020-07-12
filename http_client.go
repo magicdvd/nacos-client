@@ -1,6 +1,7 @@
 package nacos
 
 import (
+	"encoding/json"
 	"errors"
 	"io/ioutil"
 	"net/http"
@@ -22,14 +23,14 @@ type httpClient struct {
 	username        string
 	password        string
 	*http.Client
-	log LogInterface
+	enableLog bool
+	log       LogInterface
 }
 
 func (c *httpClient) api(method, apiURI string, params, body *paramMap) ([]byte, error) {
 	headers := map[string]string{}
 	headers["Client-Version"] = constant.ClientVersion
 	headers["User-Agent"] = constant.ClientVersion
-	//headers["Accept-Encoding"] = "gzip,deflate,sdch"}
 	headers["Connection"] = "Keep-Alive"
 	uuid, err := uuid.NewRandom()
 	if err != nil {
@@ -51,6 +52,21 @@ func (c *httpClient) api(method, apiURI string, params, body *paramMap) ([]byte,
 	return c.do(method, c.addr+c.contextPath+apiURI, headers, query, bodyData)
 }
 
+func di(method, target string, header map[string]string, body url.Values, err ...error) []interface{} {
+	ps := []interface{}{}
+	if len(err) > 0 {
+		ps = append(ps, err[0].Error())
+	}
+	ps = append(ps, method, target)
+	b, _ := json.Marshal(header)
+	bStr := ""
+	if len(body) > 0 {
+		bStr = body.Encode()
+	}
+	ps = append(ps, "header:"+string(b), "body:"+bStr)
+	return ps
+}
+
 func (c *httpClient) do(method, target string, headers map[string]string, params, body url.Values) ([]byte, error) {
 	if len(params) > 0 {
 		target += "?" + params.Encode()
@@ -63,29 +79,34 @@ func (c *httpClient) do(method, target string, headers map[string]string, params
 		req, err = http.NewRequest(method, target, nil)
 	}
 	if err != nil {
-		c.log.Error("do(NewRequest)", "httpClient", target, body, err)
+		c.log.Error("httpClientDo(NewRequest)", di(method, target, headers, body, err)...)
 		return nil, err
 	}
 	for k, v := range headers {
 		req.Header.Add(k, v)
 	}
-	c.log.Debug("do(clientDo)", method, target, headers, params, body)
+	if c.enableLog {
+		c.log.Debug("httpClientDo(clientDo)", di(method, target, headers, body)...)
+	}
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		c.log.Error("do(clientDo)", "httpClient", target, body, err)
+		c.log.Error("httpClientDo(clientDo)", di(method, target, headers, body, err)...)
 		return nil, err
 	}
 	defer resp.Body.Close()
 	b, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		c.log.Error("do(readAll)", "httpClient", target, err)
+		c.log.Error("httpClientDo(readAll)", di(method, target, headers, body, err)...)
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		c.log.Error("do(statusCode)", "httpClient", target, body, resp.StatusCode, string(b))
-		return nil, errors.New(string(b))
+		err := errors.New(string(b))
+		c.log.Error("httpClientDo(statusCode)", di(method, target, headers, body, err)...)
+		return nil, err
 	}
-	c.log.Debug("do(resp)", string(b))
+	if c.enableLog {
+		c.log.Debug("httpClientDo(resp)", string(b))
+	}
 	return b, nil
 }
 

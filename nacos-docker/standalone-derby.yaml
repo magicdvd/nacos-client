@@ -12,6 +12,9 @@ services:
       - ./init.d/custom.properties:/home/nacos/init.d/custom.properties
     ports:
       - "8848:8848"
+    networks:
+      mynet:
+        ipv4_address: 172.20.0.2
     # network_mode: host
   prometheus:
     container_name: prometheus
@@ -23,6 +26,9 @@ services:
     depends_on:
       - nacos
     restart: on-failure
+    networks:
+      mynet:
+        ipv4_address: 172.20.0.3
     # network_mode: host
   grafana:
     container_name: grafana
@@ -30,4 +36,23 @@ services:
     ports:
       - 3000:3000
     restart: on-failure
+    networks:
+      mynet:
+        ipv4_address: 172.20.0.4
   #   network_mode: host
+  subscriber:
+    container_name: subscriber
+    build:
+      context: ../cmd/subscribe
+    environment:
+      NACOS_SERVER: "http://nacos:nacos@172.20.0.2:8848/nacos"
+      LOG_LEVEL: "debug"
+      ENABLE_REQUEST_LOG: "false"
+    networks:
+      mynet:
+        ipv4_address: 172.20.0.5
+networks:
+  mynet:
+    ipam:
+      config:
+      - subnet: 172.20.0.0/16

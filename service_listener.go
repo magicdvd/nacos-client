@@ -25,9 +25,9 @@ type serviceListener struct {
 }
 
 type pushData struct {
-	PushType    string          `json:"type"`
-	Data        json.RawMessage `json:"data"`
-	LastRefTime int64           `json:"lastRefTime"`
+	PushType    string `json:"type"`
+	Data        string `json:"data"`
+	LastRefTime int64  `json:"lastRefTime"`
 }
 
 func (c *serviceListener) tryListen(ip string, port uint) (*net.UDPConn, bool) {
@@ -54,19 +54,27 @@ func (c *serviceListener) buildKey(serviceName string, clusters []string) string
 	return serviceName
 }
 
-func (c *serviceListener) watch(query *paramMap, callback func(*Service), set bool) {
+func (c *serviceListener) subscribe(query *paramMap, callback func(*Service)) {
 	key := c.buildKey(query.GetGrouppedServiceName(), query.clusters)
-	if !set {
-		if tmp, ok := c.callbacks.Get(key); ok {
-			c.log.Debug("watch add subscribe", key)
-			fns := tmp.([]*func(*Service))
-			fns = append(fns, &callback)
-			c.callbacks.Set(key, fns, cache.NoExpiration)
-			return
-		}
+	if tmp, ok := c.callbacks.Get(key); ok {
+		c.log.Debug("serviceListener add subscribe", key)
+		fns := tmp.([]*func(*Service))
+		fns = append(fns, &callback)
+		c.callbacks.Set(key, fns, cache.NoExpiration)
+		return
 	}
-	c.log.Debug("watch set subscribe", key)
 	c.callbacks.Set(key, []*func(*Service){&callback}, cache.NoExpiration)
+}
+
+func (c *serviceListener) unsubscribe(query *paramMap) {
+	key := c.buildKey(query.GetGrouppedServiceName(), query.clusters)
+	c.callbacks.Delete(key)
+}
+
+func (c *serviceListener) isSubscribed(query *paramMap) bool {
+	key := c.buildKey(query.GetGrouppedServiceName(), query.clusters)
+	_, ok := c.callbacks.Get(key)
+	return ok
 }
 
 func newServiceListenr(nameSpaceID string, log LogInterface) *serviceListener {
@@ -112,21 +120,21 @@ func (c *serviceListener) handleClient(conn *net.UDPConn) {
 		c.log.Error("failed to read UDP msg", err)
 		return
 	}
-	s, _, err := parseData(data[:n])
+	s, _, err := tryGzipDecompress(data[:n])
 	if err != nil {
 		c.log.Error("failed to parse push data", err)
 		return
 	}
-	c.log.Info("receive push ", s, remoteAddr)
+	c.log.Debug("recieve push", string(s), remoteAddr)
 	var pushData pushData
 	err1 := json.Unmarshal(s, &pushData)
 	if err1 != nil {
-		c.log.Error("failed to process push data.err", err)
+		c.log.Error("failed to process push data", err)
 		return
 	}
 	ack := make(map[string]string)
 	if pushData.PushType == "dom" || pushData.PushType == "service" {
-		service, err := getServiceHosts(pushData.Data)
+		service, err := parseServiceJSON([]byte(pushData.Data))
 		if err != nil {
 			c.log.Error("recieve push data error", c.nameSpaceID, err)
 		} else {
@@ -151,7 +159,7 @@ func (c *serviceListener) handleClient(conn *net.UDPConn) {
 		ack["type"] = "dump-ack"
 		ack["lastRefTime"] = strconv.FormatInt(pushData.LastRefTime, 10)
 		ack["data"] = ""
-		b, err := json.Marshal(getServiceMap(c.services))
+		b, err := json.Marshal(dumpCache(c.services))
 		if err != nil {
 			c.log.Error("dump service map error", c.nameSpaceID, err)
 		} else {
@@ -164,7 +172,7 @@ func (c *serviceListener) handleClient(conn *net.UDPConn) {
 	}
 	bs, _ := json.Marshal(ack)
 	_, _ = conn.WriteToUDP(bs, remoteAddr)
-	c.log.Info("response push ", string(bs), remoteAddr)
+	c.log.Debug("push write back", string(bs), remoteAddr)
 }
 
 func (c *serviceListener) triggerCallback(key string, s *Service) {

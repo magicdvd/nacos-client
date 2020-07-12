@@ -24,6 +24,7 @@ const (
 	keyClusters    string = "clusters"
 	keyUDPPort     string = "udpPort"
 	keyClientIP    string = "clientIP"
+	keyApp         string = "app"
 )
 
 type beatInfo struct {
@@ -60,6 +61,7 @@ type paramMap struct {
 	clusters    []string
 	udpPort     uint
 	clientIP    string
+	app         string
 }
 
 func newParamMap() *paramMap {
@@ -130,6 +132,8 @@ func (c *paramMap) Parse() url.Values {
 			v.Set(k, fmt.Sprint(c.udpPort))
 		case keyClientIP:
 			v.Set(k, fmt.Sprint(c.clientIP))
+		case keyApp:
+			v.Set(k, fmt.Sprint(c.app))
 		}
 	}
 	return v
@@ -258,5 +262,12 @@ func paramClientIP(ip string) Param {
 	return newParam(func(m *paramMap) {
 		m.keys[keyClientIP] = true
 		m.clientIP = ip
+	})
+}
+
+func paramApp(s string) Param {
+	return newParam(func(m *paramMap) {
+		m.keys[keyApp] = true
+		m.app = s
 	})
 }
