@@ -94,17 +94,30 @@ func dumpCache(c *cache.Cache) map[string]interface{} {
 	return m
 }
 
-func getLocalIP() (string, error) {
-	addrs, err := net.InterfaceAddrs()
+// func getLocalIP() (string, error) {
+// 	addrs, err := net.InterfaceAddrs()
+// 	if err != nil {
+// 		return "", err
+// 	}
+// 	for _, address := range addrs {
+// 		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+// 			if ipnet.IP.To4() != nil {
+// 				return ipnet.IP.String(), nil
+// 			}
+// 		}
+// 	}
+// 	return "", errors.New("no local IP")
+// }
+
+func getOutboundIP() (string, error) {
+	conn, err := net.Dial("udp", "114.114.114.114:80")
 	if err != nil {
-		return "", err
+		return "", nil
 	}
-	for _, address := range addrs {
-		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String(), nil
-			}
-		}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	if localAddr.IP.To4() != nil {
+		return localAddr.IP.String(), nil
 	}
 	return "", errors.New("no local IP")
 }

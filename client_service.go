@@ -57,7 +57,7 @@ func NewServiceClient(addr string, options ...ClientOption) (*ServiceClient, err
 		op.apply(cltOpts)
 	}
 	if cltOpts.discoveryIP == "" {
-		cltOpts.discoveryIP, err = getLocalIP()
+		cltOpts.discoveryIP, err = getOutboundIP()
 		if err != nil {
 			return nil, err
 		}
@@ -86,6 +86,9 @@ func NewServiceClient(addr string, options ...ClientOption) (*ServiceClient, err
 
 func (c *ServiceClient) RegisterInstance(ip string, port uint, serviceName string, params ...Param) error {
 	query := newParamMap()
+	if ip == "" {
+		ip = c.opts.discoveryIP
+	}
 	query.Set(
 		ParamIPAddress(ip),
 		ParamPort(port),
@@ -131,6 +134,9 @@ func (c *ServiceClient) RegisterInstance(ip string, port uint, serviceName strin
 
 func (c *ServiceClient) DeregisterInstance(ip string, port uint, serviceName string, params ...Param) error {
 	query := newParamMap()
+	if ip == "" {
+		ip = c.opts.discoveryIP
+	}
 	query.Set(
 		ParamIPAddress(ip),
 		ParamPort(port),

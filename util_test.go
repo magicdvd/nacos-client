@@ -13,3 +13,12 @@ func Test_grouppedServiceName(t *testing.T) {
 	t.Log(a.User.Password())
 	t.Log(a.Path)
 }
+
+func Test_getLocalIP(t *testing.T) {
+	got, err := getOutboundIP()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	t.Log(got)
+}

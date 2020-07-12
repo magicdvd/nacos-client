@@ -14,6 +14,12 @@ err = a.RegisterInstance("172.21.0.1", 8000, "my_test_service", nacos.ParamClust
 if err != nil {
     return
 }
+//如果ip不指定,则默认使用 discoveryIP (指定IP/本地可以连接网络的有效IP)
+err = a.RegisterInstance("", 8000, "my_test_service", nacos.ParamClusterName("aa"))
+if err != nil {
+    return
+}
+
 err = a.DeregisterInstance("172.21.0.1", 8000, "my_test_service", nacos.ParamClusterName("aa"))
 if err != nil {
     return
