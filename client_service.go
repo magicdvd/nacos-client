@@ -25,7 +25,7 @@ type ServiceClient struct {
 	nsServices map[string]*serviceListener
 }
 
-func NewServiceClient(addr string, options ...ClientOption) (*ServiceClient, error) {
+func NewServiceClient(addr string, options ...ClientOption) (ServiceCmdable, error) {
 	u, err := url.Parse(addr)
 	if err != nil {
 		return nil, err
