@@ -62,7 +62,7 @@ NewServiceClient(addr string, options ...ClientOption)
 - Auth 设置验证user/passwod ["",""]
 - MaxCacheTime 服务信息最大缓存时间(影响GetService) [45s]
 - DefaultNameSpaceID 设置默认命名空间 [public]
-- DiscoveryIP 订阅服务需要服务端推送的IP,多网卡时候可以选定网卡 [本地网卡所有可用地址]
+- DiscoveryIP 订阅服务需要服务端推送的IP,多网卡时候可以选定网卡 [本地一个有效IP的地址]
 - EnableHTTPRequestLog 是否打开底层http request的日志,配合LogLevel(debug)才生效 [false]
 - AppName 订阅时候注册的APPName [app-{DiscoveryIP}]
 
