@@ -11,4 +11,12 @@ type ServiceCmdable interface {
 	Subscribe(serviceName string, callback func(*Service), params ...Param) error
 	//Unsubscribe 取消订阅
 	Unsubscribe(serviceName string, params ...Param)
+	//PublishConfig 发布配置
+	PublishConfig(dataID string, group string, content string, params ...Param) error
+	//GetConfig 获取配置
+	GetConfig(dataID string, group string, params ...Param) (string, error)
+	//RemoveConfig 获取配置
+	RemoveConfig(dataID string, group string, params ...Param) error
+	//ListenConfig 监听配置
+	ListenConfig(dataID string, group string, callback func(string), params ...Param) <-chan error
 }

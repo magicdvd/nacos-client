@@ -35,11 +35,15 @@ func NewServiceClient(addr string, options ...ClientOption) (ServiceCmdable, err
 		maxCacheTime:      constant.DefaultMaxCacheTime,
 		log:               newDefaultLogger("info"),
 		defautNameSpaceID: constant.DefaultNameSpaceID,
+		listenInterval:    constant.DefaultListenInterval,
 		httpClient: &httpClient{
 			addr:        u.Scheme + "://" + u.Host,
 			contextPath: u.Path,
-			Client: &http.Client{
+			client: &http.Client{
 				Timeout: constant.DefaultTimeout,
+			},
+			listenClient: &http.Client{
+				Timeout: constant.DefaultListenInterval + 10*time.Second,
 			},
 			enableLog: false,
 			log:       logger,
@@ -90,9 +94,9 @@ func (c *ServiceClient) RegisterInstance(ip string, port uint, serviceName strin
 		ip = c.opts.discoveryIP
 	}
 	query.Set(
-		ParamIPAddress(ip),
-		ParamPort(port),
-		ParamServiceName(serviceName),
+		paramIPAddress(ip),
+		paramPort(port),
+		paramServiceName(serviceName),
 		ParamEnabled(true),
 		ParamWeight(1.0),
 		ParamHealthy(true),
@@ -138,9 +142,9 @@ func (c *ServiceClient) DeregisterInstance(ip string, port uint, serviceName str
 		ip = c.opts.discoveryIP
 	}
 	query.Set(
-		ParamIPAddress(ip),
-		ParamPort(port),
-		ParamServiceName(serviceName),
+		paramIPAddress(ip),
+		paramPort(port),
+		paramServiceName(serviceName),
 		ParamGroupName(constant.DefaultGroupName),
 		ParamNameSpaceID(c.opts.defautNameSpaceID),
 		ParamClusterName(constant.DefaultClusterName),
@@ -161,7 +165,7 @@ func (c *ServiceClient) GetService(serviceName string, lazy bool, params ...Para
 	query := newParamMap()
 	query.Set(
 		ParamHealthy(true),
-		ParamServiceName(serviceName),
+		paramServiceName(serviceName),
 		ParamGroupName(constant.DefaultGroupName),
 		ParamNameSpaceID(c.opts.defautNameSpaceID),
 	)
@@ -181,7 +185,7 @@ func (c *ServiceClient) Subscribe(serviceName string, callback func(*Service), p
 	query := newParamMap()
 	query.Set(
 		ParamHealthy(true),
-		ParamServiceName(serviceName),
+		paramServiceName(serviceName),
 		ParamGroupName(constant.DefaultGroupName),
 		ParamNameSpaceID(c.opts.defautNameSpaceID),
 	)
@@ -242,7 +246,7 @@ func (c *ServiceClient) Unsubscribe(serviceName string, params ...Param) {
 	query := newParamMap()
 	query.Set(
 		ParamHealthy(true),
-		ParamServiceName(serviceName),
+		paramServiceName(serviceName),
 		ParamGroupName(constant.DefaultGroupName),
 		ParamNameSpaceID(c.opts.defautNameSpaceID),
 	)
@@ -341,11 +345,11 @@ func (c *ServiceClient) autoSendBeat(nameSpaceID string, beat *beatInfo) {
 
 func (c *ServiceClient) sendBeat(nameSpaceID string, beat *beatInfo) error {
 	query := newParamMap()
-	query.Set(ParamNameSpaceID(nameSpaceID), ParamServiceName(beat.ServiceName), ParamClusterName(beat.Cluster), ParamIPAddress(beat.IP), ParamPort(beat.Port))
+	query.Set(ParamNameSpaceID(nameSpaceID), paramServiceName(beat.ServiceName), ParamClusterName(beat.Cluster), paramIPAddress(beat.IP), paramPort(beat.Port))
 	var body *paramMap
 	if !beat.LightBeatEnabled {
 		body = newParamMap()
-		body.Set(ParamBeat(beat))
+		body.Set(paramBeat(beat))
 	}
 	b, err := c.client.api(http.MethodPut, constant.APIInstanceBeat, query, body)
 	if err != nil {
@@ -364,7 +368,7 @@ func (c *ServiceClient) sendBeat(nameSpaceID string, beat *beatInfo) error {
 	if code == 20404 {
 		groupName, serviceName := beat.SplitServiceName()
 		pm := newParamMap()
-		pm.Set(ParamIPAddress(beat.IP), ParamPort(beat.Port), ParamServiceName(serviceName), ParamWeight(beat.Weight), ParamMetadata(beat.Metadata), ParamClusterName(beat.Cluster), ParamEphemeral(true), ParamGroupName(groupName))
+		pm.Set(paramIPAddress(beat.IP), paramPort(beat.Port), paramServiceName(serviceName), ParamWeight(beat.Weight), ParamMetadata(beat.Metadata), ParamClusterName(beat.Cluster), ParamEphemeral(true), ParamGroupName(groupName))
 		//已经注销
 		if !c.existBeatMap(query.ipAddress, query.port, query.serviceName, query.groupName, query.nameSpaceID, query.clusterName) {
 			return nil

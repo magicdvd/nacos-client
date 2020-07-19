@@ -65,6 +65,14 @@ type ServiceCmdable interface {
     Subscribe(serviceName string, callback func(*Service), params ...Param) error
     //Unsubscribe 取消订阅
     Unsubscribe(serviceName string, params ...Param)
+    //PublishConfig 发布配置
+    PublishConfig(dataID string, group string, content string, params ...Param) error
+    //GetConfig 获取配置
+    GetConfig(dataID string, group string, params ...Param) (string, error)
+    //RemoveConfig 获取配置
+    RemoveConfig(dataID string, group string, params ...Param) error
+    //ListenConfig 监听配置
+    ListenConfig(dataID string, group string, callback func(string), params ...Param) <-chan error
 }
 ```
 
@@ -80,6 +88,7 @@ type ServiceCmdable interface {
 - DiscoveryIP 订阅服务需要服务端推送的IP,多网卡时候可以选定网卡 [本地一个有效IP的地址]
 - EnableHTTPRequestLog 是否打开底层http request的日志,配合LogLevel(debug)才生效 [false]
 - AppName 订阅时候注册的APPName [app-{DiscoveryIP}]
+- DefaultTenant 默认租户信息config使用 [""]
 
 ### 功能参数
 
@@ -87,24 +96,21 @@ client.XXXXX(... params ...Param)
 
 Param部分key
 
-```golang
-keyIPAddress   string = "ip"
-keyPort        string = "port"
-keyNameSpaceID string = "namespaceId"
-keyWeight      string = "weight"
-keyEnabled     string = "enabled"
-keyHealthy     string = "healthy"
-keyMetadata    string = "metadata"
-keyClusterName string = "clusterName"
-keyServiceName string = "serviceName"
-keyGroupName   string = "groupName"
-keyEphemeral   string = "ephemeral"
-keyBeat        string = "beat"
-keyClusters    string = "clusters"
-keyUDPPort     string = "udpPort"
-keyClientIP    string = "clientIP"
-keyApp         string = "app"
-```
+|      可选参数      | Service | Config |
+| :----------------: | :-----: | :----: |
+|    ParamWeight     |    x    |        |
+|  ParamNameSpaceID  |    x    |        |
+|    ParamEnabled    |    x    |        |
+|    ParamHealthy    |    x    |        |
+|   ParamMetadata    |    x    |        |
+|  ParamClusterName  |    x    |        |
+|   ParamGroupName   |    x    |        |
+|   ParamClusters    |    x    |        |
+|   ParamEphemeral   |    x    |        |
+| ParamConfigAppName |         |   x    |
+| ParamConfigTenant  |         |   x    |
+|  ParamConfigType   |         |   x    |
+|   ParamConfigTag   |         |   x    |
 
 ## 其他
 

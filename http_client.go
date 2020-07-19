@@ -3,6 +3,7 @@ package nacos
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -22,9 +23,36 @@ type httpClient struct {
 	lastRefreshTime time.Time
 	username        string
 	password        string
-	*http.Client
-	enableLog bool
-	log       LogInterface
+	client          *http.Client
+	listenClient    *http.Client
+	enableLog       bool
+	log             LogInterface
+}
+
+func (c *httpClient) listen(method, apiURI string, t time.Duration, params, body *paramMap) ([]byte, error) {
+	headers := map[string]string{}
+	headers["Client-Version"] = constant.ClientVersion
+	headers["User-Agent"] = constant.ClientVersion
+	headers["Connection"] = "Keep-Alive"
+	uuid, err := uuid.NewRandom()
+	if err != nil {
+		return nil, err
+	}
+	headers["RequestId"] = uuid.String()
+	headers["Request-Module"] = "Naming"
+	headers["Content-Type"] = "application/x-www-form-urlencoded;charset=utf-8"
+	headers["Long-Pulling-Timeout"] = fmt.Sprint(int64(t / time.Millisecond))
+	query, bodyData := url.Values{}, url.Values{}
+	if params != nil {
+		query = params.Parse()
+	}
+	if body != nil {
+		bodyData = body.Parse()
+	}
+	if c.accessToken != "" {
+		query.Set(constant.AccessToken, c.accessToken)
+	}
+	return c.do(c.listenClient, method, c.addr+c.contextPath+apiURI, headers, query, bodyData)
 }
 
 func (c *httpClient) api(method, apiURI string, params, body *paramMap) ([]byte, error) {
@@ -49,7 +77,7 @@ func (c *httpClient) api(method, apiURI string, params, body *paramMap) ([]byte,
 	if c.accessToken != "" {
 		query.Set(constant.AccessToken, c.accessToken)
 	}
-	return c.do(method, c.addr+c.contextPath+apiURI, headers, query, bodyData)
+	return c.do(c.client, method, c.addr+c.contextPath+apiURI, headers, query, bodyData)
 }
 
 func di(method, target string, header map[string]string, body url.Values, err ...error) []interface{} {
@@ -67,7 +95,7 @@ func di(method, target string, header map[string]string, body url.Values, err ..
 	return ps
 }
 
-func (c *httpClient) do(method, target string, headers map[string]string, params, body url.Values) ([]byte, error) {
+func (c *httpClient) do(client *http.Client, method, target string, headers map[string]string, params, body url.Values) ([]byte, error) {
 	if len(params) > 0 {
 		target += "?" + params.Encode()
 	}
@@ -88,7 +116,7 @@ func (c *httpClient) do(method, target string, headers map[string]string, params
 	if c.enableLog {
 		c.log.Debug("httpClientDo(clientDo)", di(method, target, headers, body)...)
 	}
-	resp, err := c.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		c.log.Error("httpClientDo(clientDo)", di(method, target, headers, body, err)...)
 		return nil, err
@@ -129,7 +157,7 @@ func (c *httpClient) login() error {
 	params.Set("username", c.username)
 	body := url.Values{}
 	body.Set("password", c.password)
-	b, err := c.do(http.MethodPost, c.addr+c.contextPath+constant.APILoginPath, map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, params, body)
+	b, err := c.do(c.client, http.MethodPost, c.addr+c.contextPath+constant.APILoginPath, map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, params, body)
 	if err != nil {
 		return err
 	}

@@ -35,3 +35,42 @@ func TestNewServiceClientGet(t *testing.T) {
 	fmt.Println("clusters", s.Clusters, "lenhosts", len(s.Instances))
 	<-time.After(2 * time.Second)
 }
+
+func TestNewServiceClientPublish(t *testing.T) {
+	a, err := NewServiceClient("http://nacos:nacos@127.0.0.1:8848/nacos", LogLevel("debug"))
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	err = a.PublishConfig("testDataId", "group", "111113")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+}
+
+func TestNewServiceClientGetConfig(t *testing.T) {
+	a, err := NewServiceClient("http://nacos:nacos@127.0.0.1:8848/nacos", LogLevel("debug"))
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	k, err := a.GetConfig("testDataId", "group")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	t.Log(k)
+}
+
+func TestNewServiceClientRemove(t *testing.T) {
+	a, err := NewServiceClient("http://nacos:nacos@127.0.0.1:8848/nacos", LogLevel("debug"))
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	a.ListenConfig("testDataId", "group", func(s string) {
+		t.Log("v", s)
+	})
+	<-time.After(4 * time.Second)
+}

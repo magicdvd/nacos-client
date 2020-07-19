@@ -9,7 +9,9 @@ type clientOptions struct {
 	maxCacheTime      time.Duration
 	log               LogInterface
 	httpClient        *httpClient
+	listenInterval    time.Duration
 	defautNameSpaceID string
+	defaultTenant     string
 	discoveryIP       string
 	appName           string
 }
@@ -34,15 +36,16 @@ func (fco *funcClientOption) apply(do *clientOptions) {
 
 func HTTPTimeout(s time.Duration) ClientOption {
 	return newFuncClientOption(func(o *clientOptions) {
-		o.httpClient.Timeout = s
+		o.httpClient.client.Timeout = s
 	})
 }
 
-// func ListenInterval(s time.Duration) ClientOption {
-// 	return newFuncClientOption(func(o *clientOptions) {
-// 		o.listenInterval = s
-// 	})
-// }
+func ListenInterval(s time.Duration) ClientOption {
+	return newFuncClientOption(func(o *clientOptions) {
+		o.httpClient.listenClient.Timeout = s + 10*time.Second
+		o.listenInterval = s
+	})
+}
 
 func Log(log LogInterface) ClientOption {
 	return newFuncClientOption(func(o *clientOptions) {
@@ -61,7 +64,8 @@ func LogLevel(s string) ClientOption {
 // Creds returns a ServerOption that sets credentials for server connections.
 func HTTPTransport(c http.RoundTripper) ClientOption {
 	return newFuncClientOption(func(o *clientOptions) {
-		o.httpClient.Transport = c
+		o.httpClient.client.Transport = c
+		o.httpClient.listenClient.Transport = c
 	})
 }
 
@@ -103,5 +107,11 @@ func EnableHTTPRequestLog(b bool) ClientOption {
 func AppName(s string) ClientOption {
 	return newFuncClientOption(func(o *clientOptions) {
 		o.appName = s
+	})
+}
+
+func DefaultTenant(s string) ClientOption {
+	return newFuncClientOption(func(o *clientOptions) {
+		o.defaultTenant = s
 	})
 }

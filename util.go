@@ -3,8 +3,11 @@ package nacos
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/md5"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 
@@ -120,4 +123,11 @@ func getOutboundIP() (string, error) {
 		return localAddr.IP.String(), nil
 	}
 	return "", errors.New("no local IP")
+}
+
+func md5string(content string) (md string) {
+	h := md5.New()
+	_, _ = io.WriteString(h, content)
+	md = fmt.Sprintf("%x", h.Sum(nil))
+	return
 }
