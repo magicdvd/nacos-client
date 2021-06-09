@@ -14,6 +14,7 @@ type clientOptions struct {
 	defaultTenant     string
 	discoveryIP       string
 	appName           string
+	maxRetryTimes     int
 }
 
 type ClientOption interface {
@@ -113,5 +114,11 @@ func AppName(s string) ClientOption {
 func DefaultTenant(s string) ClientOption {
 	return newFuncClientOption(func(o *clientOptions) {
 		o.defaultTenant = s
+	})
+}
+
+func MaxHeartBeatRetryTimes(c int) ClientOption {
+	return newFuncClientOption(func(o *clientOptions) {
+		o.maxRetryTimes = c
 	})
 }

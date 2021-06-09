@@ -12,10 +12,6 @@ import (
 	"github.com/patrickmn/go-cache"
 )
 
-// const (
-// 	invalidOptionFormat = "invalid option %s"
-// )
-
 type ServiceClient struct {
 	opts       *clientOptions
 	client     *httpClient
@@ -23,6 +19,7 @@ type ServiceClient struct {
 	beatMap    *cache.Cache
 	lock       sync.Mutex
 	nsServices map[string]*serviceListener
+	errCh      chan error
 }
 
 func NewServiceClient(addr string, options ...ClientOption) (ServiceCmdable, error) {
@@ -48,6 +45,7 @@ func NewServiceClient(addr string, options ...ClientOption) (ServiceCmdable, err
 			enableLog: false,
 			log:       logger,
 		},
+		maxRetryTimes: 10,
 	}
 	if u.User.Username() != "" {
 		if pwd, ok := u.User.Password(); ok {
@@ -330,16 +328,37 @@ func (c *ServiceClient) registerInstance(query *paramMap, setBeat bool) (bool, e
 }
 
 func (c *ServiceClient) autoSendBeat(nameSpaceID string, beat *beatInfo) {
+	errCount := 0
 	groupName, serviceName := beat.SplitServiceName()
+	c.errCh = make(chan error)
+	defer close(c.errCh)
 	for {
 		if beat.Interval > 0 {
 			<-time.After(beat.Interval)
 		}
 		//已经注销
 		if !c.existBeatMap(beat.IP, beat.Port, serviceName, groupName, nameSpaceID, beat.Cluster) {
+			c.errCh <- nil
 			return
 		}
-		_ = c.sendBeat(nameSpaceID, beat)
+		err := c.sendBeat(nameSpaceID, beat)
+		if err != nil {
+			errCount++
+			//错误以后尝试重新登录
+			if c.client.username != "" {
+				err = c.client.login()
+				if err != nil {
+					continue
+				}
+				go c.client.refreshLogin()
+			}
+		} else {
+			errCount = 0
+		}
+		if errCount > c.opts.maxRetryTimes {
+			c.errCh <- err
+			return
+		}
 	}
 }
 
@@ -380,4 +399,8 @@ func (c *ServiceClient) sendBeat(nameSpaceID string, beat *beatInfo) error {
 		}
 	}
 	return nil
+}
+
+func (c *ServiceClient) HeartBeatErr() <-chan error {
+	return c.errCh
 }

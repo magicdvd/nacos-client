@@ -3,6 +3,8 @@ package nacos
 type ServiceCmdable interface {
 	//RegisterInstance 注册实例
 	RegisterInstance(ip string, port uint, serviceName string, params ...Param) error
+	//HeartBeatErr 注册实例如果出错时候的回调
+	HeartBeatErr() <-chan error
 	//DeregisterInstance 销毁实例
 	DeregisterInstance(ip string, port uint, serviceName string, params ...Param) error
 	//GetService 获取服务

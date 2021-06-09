@@ -27,6 +27,7 @@ type httpClient struct {
 	listenClient    *http.Client
 	enableLog       bool
 	log             LogInterface
+	loginExit       bool
 }
 
 func (c *httpClient) listen(method, apiURI string, t time.Duration, params, body *paramMap) ([]byte, error) {
@@ -139,14 +140,19 @@ func (c *httpClient) do(client *http.Client, method, target string, headers map[
 }
 
 func (c *httpClient) refreshLogin() {
+	if !c.loginExit {
+		return
+	}
 	for {
 		if c.accessTokenTTL == 0 {
 			if err := c.login(); err != nil {
+				c.loginExit = true
 				return
 			}
 		}
 		<-time.After(time.Duration(c.accessTokenTTL) * time.Second * 9 / 10)
 		if err := c.login(); err != nil {
+			c.loginExit = true
 			return
 		}
 	}
